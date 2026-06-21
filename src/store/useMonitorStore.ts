@@ -100,12 +100,6 @@ export const useMonitorStore = create<MonitorStore>((set, get) => ({
 
     const check = canDeviceStart(device, state.devices);
     if (!check.canStart) {
-      if (check.lowHealth) {
-        return {
-          success: false,
-          message: `设备健康分 ${device.lifeStats.healthScore} 低于60，禁止启动`,
-        };
-      }
       const missingNames = check.missingDeps.map(id => state.devices[id]?.name || id).join('、');
       return {
         success: false,
@@ -430,10 +424,13 @@ export const useMonitorStore = create<MonitorStore>((set, get) => ({
       setTimeout(() => get().setVisualFlash(null), 1500);
     }
 
+    for (const [dId, fusedDev] of Object.entries(fuseResult.devices)) {
+      newDevices[dId] = fusedDev;
+    }
+
     for (const [dId, dev] of Object.entries(newDevices)) {
       const sensor = newSensors[dev.tempSensorId];
       if (!sensor) continue;
-      if (!fuseResult.devices[dId]) continue;
       const updatedLife = tickDeviceLife(dev, sensor, TICK_INTERVAL_SEC, now);
       newDevices[dId] = {
         ...newDevices[dId],
@@ -484,3 +481,48 @@ export const useMonitorStore = create<MonitorStore>((set, get) => ({
     setTimeout(() => get().tickTemperature(), 0);
   },
 }));
+
+const LIFESTATS_STORAGE_KEY = 'monitor:lifeStats';
+
+type PersistedLifeStats = Record<string, Device['lifeStats']>;
+
+function loadLifeStatsFromStorage(): PersistedLifeStats | null {
+  try {
+    if (typeof window === 'undefined') return null;
+    const raw = window.localStorage.getItem(LIFESTATS_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as PersistedLifeStats;
+  } catch {
+    return null;
+  }
+}
+
+function saveLifeStatsToStorage(devices: Record<string, Device>): void {
+  try {
+    if (typeof window === 'undefined') return;
+    const payload: PersistedLifeStats = {};
+    for (const [id, dev] of Object.entries(devices)) {
+      payload[id] = dev.lifeStats;
+    }
+    window.localStorage.setItem(LIFESTATS_STORAGE_KEY, JSON.stringify(payload));
+  } catch {
+    return;
+  }
+}
+
+const persisted = loadLifeStatsFromStorage();
+if (persisted) {
+  useMonitorStore.setState((prev) => {
+    const merged: Record<string, Device> = {};
+    for (const [id, dev] of Object.entries(prev.devices)) {
+      merged[id] = persisted[id]
+        ? { ...dev, lifeStats: persisted[id] }
+        : dev;
+    }
+    return { devices: merged };
+  });
+}
+
+useMonitorStore.subscribe((state) => {
+  saveLifeStatsToStorage(state.devices);
+});

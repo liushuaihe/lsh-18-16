@@ -1,18 +1,14 @@
 import { Device, DeviceStatus, TracePath, TraceStep } from '../types';
-import { isChainStartAllowed } from './lifeEngine';
 
 export function canDeviceStart(
   device: Device,
   devices: Record<string, Device>
-): { canStart: boolean; missingDeps: string[]; lowHealth?: boolean } {
+): { canStart: boolean; missingDeps: string[] } {
   if (device.status === DeviceStatus.ON || device.status === DeviceStatus.STANDBY) {
     return { canStart: true, missingDeps: [] };
   }
   if (device.status === DeviceStatus.FAULT || device.status === DeviceStatus.FUSED) {
     return { canStart: false, missingDeps: [] };
-  }
-  if (!isChainStartAllowed(device.lifeStats)) {
-    return { canStart: false, missingDeps: [], lowHealth: true };
   }
   const missingDeps: string[] = [];
   for (const depId of device.dependencyIds) {
